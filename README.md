@@ -38,10 +38,11 @@ With the CLI:
 npx skills update python-ngc
 ```
 
-
-
 ## Usage
 
-The skill activates only when you explicitly ask an agent to adopt or apply NGC to a
-repository, e.g. "apply NGC to this project". It selects only the project profile and
-capability guidance that matches the repository.
+The skill activates only when you explicitly ask an agent to adopt, apply, audit, or maintain NGC
+in a repository, e.g. "apply NGC to this project". It inspects the requested scope and loads only the
+matching project and capability guidance.
+
+For a deterministic first pass, the skill includes a read-only repository evidence helper at
+`scripts/audit_repo.py`. Its findings are review inputs; they do not authorize mechanical rewrites.

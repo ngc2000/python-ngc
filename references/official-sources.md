@@ -3,6 +3,14 @@
 Use this index to re-check guidance that changes with tool releases. Prefer the linked primary source
 over blog posts and copied snippets.
 
+## Contents
+
+- [Packaging, uv, Ruff, and ty](#packaging-uv-ruff-and-ty)
+- [Formatting, commands, tests, and coverage](#formatting-commands-tests-and-coverage)
+- [Configuration, logging, and state](#configuration-logging-and-state)
+- [Containers and supply chain](#containers-and-supply-chain)
+- [FastAPI and CI security](#fastapi-and-ci-security)
+
 ## Packaging, uv, Ruff, and ty
 
 - [uv project initialization](https://docs.astral.sh/uv/concepts/projects/init/): packaged
@@ -19,7 +27,8 @@ over blog posts and copied snippets.
   standardized project/build metadata and the `Private :: Do Not Upload` PyPI rejection classifier.
 - [Ruff configuration](https://docs.astral.sh/ruff/configuration/) and
   [Ruff formatter conflicts](https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules): file
-  discovery, version inference, formatter checks, and incompatible lint rules.
+  discovery, Markdown code-block formatting, version inference, formatter checks, and incompatible
+  lint rules.
 - [Ruff `PGH004`](https://docs.astral.sh/ruff/rules/blanket-noqa/): why blanket `noqa` comments hide
   diagnostics.
 - [ty configuration](https://docs.astral.sh/ty/reference/configuration/) and
@@ -52,6 +61,33 @@ over blog posts and copied snippets.
   reports, exclusions, and failure thresholds.
 - [pytest-cov configuration](https://pytest-cov.readthedocs.io/en/latest/config.html): pytest integration
   and report behavior.
+
+## Configuration, logging, and state
+
+- [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): typed environment,
+  dotenv, secrets, TOML sources, source customization, and precedence.
+- [Python `tomllib`](https://docs.python.org/3/library/tomllib.html): standard-library TOML parsing and
+  its read-only scope.
+- [Python logging cookbook: contextual data](https://docs.python.org/3/howto/logging-cookbook.html#use-of-contextvars):
+  request context propagation across threads and asynchronous tasks with `contextvars`.
+- [Python `QueueHandler` and `QueueListener`](https://docs.python.org/3/library/logging.handlers.html#queuehandler):
+  moving slow handler work off latency-sensitive threads and tasks.
+- [Python `compression.zstd`](https://docs.python.org/3.14/library/compression.zstd.html): Python 3.14's
+  optional standard-library Zstandard file and streaming interfaces.
+- [`colorlog`](https://github.com/borntyping/python-colorlog): colored standard-library logging,
+  stream detection, and explicit color controls.
+- [structlog standard-library integration](https://www.structlog.org/en/stable/standard-library.html)
+  and [context variables](https://www.structlog.org/en/stable/contextvars.html): shared processing for
+  structlog and standard records, multiple renderers, and request-context binding.
+- [OpenTelemetry log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/): stable event,
+  severity, trace, timestamp, body, and attribute concepts for interoperable structured logs.
+- [Grafana Loki label cardinality](https://grafana.com/docs/loki/latest/get-started/labels/cardinality/):
+  keeping labels low-cardinality and putting unbounded identifiers in structured metadata or log
+  fields.
+- [SQLite online backup API](https://www.sqlite.org/backup.html): consistent live snapshots without
+  copying an actively changing database file directly.
+- [SQLite write-ahead logging](https://www.sqlite.org/wal.html): WAL behavior, concurrency tradeoffs,
+  checkpointing, and the same-host filesystem requirement.
 
 ## Containers and supply chain
 
@@ -92,17 +128,23 @@ over blog posts and copied snippets.
 - [FastAPI middleware](https://fastapi.tiangolo.com/tutorial/middleware/) and
   [bigger applications](https://fastapi.tiangolo.com/tutorial/bigger-applications/): response headers,
   request middleware, router prefixes, and modular APIs.
-- [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): typed environment,
-  dotenv, secrets, TOML sources, and source precedence.
+- [FastAPI error handling](https://fastapi.tiangolo.com/tutorial/handling-errors/),
+  [custom responses](https://fastapi.tiangolo.com/advanced/custom-response/), and
+  [additional responses](https://fastapi.tiangolo.com/advanced/additional-responses/): Starlette HTTP
+  exceptions, preserved headers, direct-response validation boundaries, and documented error models.
 - [HTTP Semantics (RFC 9110)](https://www.rfc-editor.org/rfc/rfc9110) and
   [Problem Details for HTTP APIs (RFC 9457)](https://www.rfc-editor.org/rfc/rfc9457): method/status
   semantics and a standard alternative to a house error envelope.
+- [W3C Trace Context](https://www.w3.org/TR/trace-context/): standard trace propagation and trust
+  boundaries, distinct from application request IDs and idempotency keys.
 - [FastAPI in containers](https://fastapi.tiangolo.com/deployment/docker/): exec-form commands,
   graceful shutdown, and worker tradeoffs.
 - [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use): least
   token permissions, immutable action references, secrets, and supply-chain hardening.
 - [GitHub secret types](https://docs.github.com/en/code-security/reference/secret-security/secret-types):
   repository secret scope and withholding from fork and Dependabot pull requests.
+- [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments):
+  required reviewers and environment-scoped secrets for manually approved publication jobs.
 - [Secure pull-request workflows](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target):
   trust boundaries when checking out and executing pull-request code.
 - [Configuring Dependabot security updates](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configuring-dependabot-security-updates):
