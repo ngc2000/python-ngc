@@ -42,18 +42,38 @@ tag; the only baseline tags are `main` and `pr-<number>`.
 ## Gated Image Job
 
 Run this job only after the selected quality jobs pass. The gate deliberately gives the registry token
-to protected `main` pushes and trusted same-repository, non-Dependabot pull requests:
+to protected `main` pushes and trusted same-repository, non-Dependabot pull requests. Replace
+`quality` with every actual prerequisite job ID. Keep the five-minute baseline unless measured image
+builds require a narrow documented override:
 
 ```yaml
-if: >-
-    (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-    (github.event_name == 'pull_request' &&
-    github.event.pull_request.head.repo.full_name == github.repository &&
-    github.event.pull_request.user.login != 'dependabot[bot]')
+jobs:
+    image:
+        needs:
+            - quality
+        if: >-
+            (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.event.pull_request.user.login != 'dependabot[bot]')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
 ```
 
-After checkout and Buildx setup, collect identity from the exact checked-out commit and publish from
-repository-root context:
+Cancel superseded PR validation without canceling protected-branch pushes. Put this at workflow scope,
+not inside `jobs`, and keep workflow names unique so groups cannot collide:
+
+```yaml
+concurrency:
+    group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+```
+
+Use a pinned checkout action with `persist-credentials: false` unless later steps need authenticated
+Git. After checkout and Buildx setup, collect identity from the exact checked-out commit and publish
+from repository-root context:
 
 ```yaml
 - name: Collect build identity

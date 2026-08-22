@@ -28,6 +28,8 @@ IGNORED_SCAN_PARTS = {
 }
 RUNTIME_ASSET_DIRS = ("consts", "migrations", "static", "templates")
 DOC_POLICY_FILES = ("AGENTS.md", "CLAUDE.md", "CONSTITUTION.md", "README.md")
+NGC_UV_BUILDER_IMAGE = "ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim"
+NGC_PYTHON_RUNTIME_IMAGE = "python:3.14-slim-trixie"
 
 
 @dataclass(frozen=True)
@@ -160,7 +162,9 @@ def _audit_compose(
                     (relative_path,),
                 ),
             )
-        latest_images = tuple(image for image in images if re.search(r":latest(?:[}\s]|$)", image))
+        latest_images = tuple(
+            image for image in images if re.search(r":latest(?:[}\s]|$)", image)
+        )
         if latest_images:
             findings.append(
                 Finding(
@@ -231,8 +235,30 @@ def _docker_sources(text: str) -> set[str]:
             instruction,
             flags=re.IGNORECASE,
         )
-        sources.update(source.strip("\"'").replace("\\", "/") for source in bind_sources)
+        sources.update(
+            source.strip("\"'").replace("\\", "/") for source in bind_sources
+        )
     return sources
+
+
+def _docker_stage_images(text: str) -> list[str]:
+    images: list[str] = []
+    for instruction in _docker_instructions(text):
+        match = re.match(r"^FROM\s+(.+)$", instruction, flags=re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            tokens = shlex.split(match.group(1), posix=True)
+        except ValueError:
+            continue
+        image = next((token for token in tokens if not token.startswith("--")), None)
+        if image:
+            images.append(image)
+    return images
+
+
+def _matches_container_image(image: str, expected: str) -> bool:
+    return image == expected or image.startswith(f"{expected}@sha256:")
 
 
 def _audit_docker(
@@ -243,8 +269,51 @@ def _audit_docker(
     source_map: dict[str, list[str]] = {}
     for dockerfile in dockerfiles:
         relative_dockerfile = _relative(dockerfile, root)
-        sources = _docker_sources(_read_text(dockerfile))
+        text = _read_text(dockerfile)
+        sources = _docker_sources(text)
         source_map[relative_dockerfile] = sorted(sources)
+
+        stage_images = _docker_stage_images(text)
+        if len(stage_images) < 2:
+            findings.append(
+                Finding(
+                    "warning",
+                    "single-stage-dockerfile",
+                    (
+                        f"{relative_dockerfile} has fewer than two stages; use a pinned uv builder "
+                        "and a separate slim Python runtime."
+                    ),
+                    (relative_dockerfile,),
+                ),
+            )
+        else:
+            if not any(
+                _matches_container_image(image, NGC_UV_BUILDER_IMAGE)
+                for image in stage_images[:-1]
+            ):
+                findings.append(
+                    Finding(
+                        "warning",
+                        "unexpected-uv-builder",
+                        (
+                            f"{relative_dockerfile} does not use {NGC_UV_BUILDER_IMAGE} "
+                            "before its final stage."
+                        ),
+                        (relative_dockerfile,),
+                    ),
+                )
+            if not _matches_container_image(stage_images[-1], NGC_PYTHON_RUNTIME_IMAGE):
+                findings.append(
+                    Finding(
+                        "warning",
+                        "unexpected-python-runtime",
+                        (
+                            f"{relative_dockerfile} ends with {stage_images[-1]!r}; use "
+                            f"{NGC_PYTHON_RUNTIME_IMAGE} so uv stays out of the runtime image."
+                        ),
+                        (relative_dockerfile,),
+                    ),
+                )
 
         copies_everything = any(source in {".", "./"} for source in sources)
         for directory in RUNTIME_ASSET_DIRS:
@@ -269,7 +338,9 @@ def _audit_docker(
 
 def _audit_backend(pyproject: dict[str, Any], findings: list[Finding]) -> str | None:
     build_system = pyproject.get("build-system", {})
-    backend = build_system.get("build-backend") if isinstance(build_system, dict) else None
+    backend = (
+        build_system.get("build-backend") if isinstance(build_system, dict) else None
+    )
     tool = pyproject.get("tool", {})
     if not isinstance(tool, dict) or not isinstance(backend, str):
         return backend if isinstance(backend, str) else None
@@ -357,7 +428,9 @@ def _documented_coverage_thresholds(root: Path) -> list[dict[str, Any]]:
             continue
         text = _read_text(path)
         matches = {
-            float(match.group(1)) for pattern in patterns for match in pattern.finditer(text)
+            float(match.group(1))
+            for pattern in patterns
+            for match in pattern.finditer(text)
         }
         values.extend({"source": filename, "value": value} for value in sorted(matches))
     return values
@@ -384,7 +457,10 @@ def _runtime_entrypoints(root: Path, pyproject: dict[str, Any]) -> dict[str, lis
             if not _is_scannable(path.relative_to(root)):
                 continue
             text = _read_text(path)
-            if 'if __name__ == "__main__"' in text or "if __name__ == '__main__'" in text:
+            if (
+                'if __name__ == "__main__"' in text
+                or "if __name__ == '__main__'" in text
+            ):
                 result["python_modules"].append(_relative(path, root))
     result["python_modules"].sort()
     return result
@@ -442,7 +518,8 @@ def _profile(
     checks = {
         "configuration": bool(examples) or "pydantic-settings" in dependencies,
         "tests": (root / "tests").is_dir() or "pytest" in dependencies,
-        "formatting": (root / "package.json").exists() or any(root.glob(".prettierrc*")),
+        "formatting": (root / "package.json").exists()
+        or any(root.glob(".prettierrc*")),
         "fastapi": "fastapi" in dependencies,
         "httpx2": "httpx2" in dependencies,
         "containers": bool(dockerfiles),
@@ -454,7 +531,9 @@ def _profile(
     }
     capabilities = [name for name, selected in checks.items() if selected]
     role_candidates = (
-        ["service"] if checks["containers"] or checks["fastapi"] else ["service", "library"]
+        ["service"]
+        if checks["containers"] or checks["fastapi"]
+        else ["service", "library"]
     )
     return {
         "repository": str(root),
@@ -496,7 +575,9 @@ def audit(root: Path) -> dict[str, Any]:
 
     if len({item["value"] for item in thresholds}) > 1:
         sources = tuple(str(item["source"]) for item in thresholds)
-        rendered = ", ".join(f"{item['source']}={item['value']:g}" for item in thresholds)
+        rendered = ", ".join(
+            f"{item['source']}={item['value']:g}" for item in thresholds
+        )
         findings.append(
             Finding(
                 "warning",

@@ -30,23 +30,32 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
   a service intentionally reads repository-root assets.
 - Keep `.git`, real `.env` files, local configuration, mutable data, caches, tests, and build output out
   of the context unless a tested build stage explicitly needs one of them.
+- Always exclude the host `.venv` from the build context. A virtual environment is platform-specific;
+  create it in the builder and copy that built environment into the runtime stage.
 - Verify the CI workflow keeps the root context explicit; do not add context inference or alternate
   local build layouts to the baseline.
 
 ## Build a Least-Privilege Image
 
-- Default Python 3.14 services to `ghcr.io/astral-sh/uv:python3.14-trixie-slim`. Prefer Debian slim for
-  broad wheel and native-library compatibility. Use Alpine only after verifying the complete
-  dependency stack on musl and demonstrating a concrete benefit.
+- Build Python 3.14 services with the pinned
+  `ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim` builder and run them from the matching
+  `python:3.14-slim-trixie` base. Prefer Debian slim for broad wheel and native-library compatibility.
+  Use Alpine only after verifying the complete dependency stack on musl and demonstrating a concrete
+  benefit.
 - Use current Dockerfile syntax, a trusted minimal base, BuildKit cache mounts, and lockfile-first
   layers. Treat base-image tags and digests as an explicit update policy; pin a digest only when the
   repository requires byte-for-byte repeatability.
-- Retain a working single-stage image for a pure-Python service when a split would not remove
-  compilers, native headers, build tools, or package artifacts. Use builder/runtime stages when they
-  measurably keep those items out of production.
-- Install production dependencies with `uv sync --locked --no-dev`; add `--no-editable` for an
-  installable package. Keep Git, caches, tests, source-control metadata, and build-only dependencies
-  out of the runtime image.
+- Require separate builder and runtime stages for deployable services. Use the uv image only in the
+  builder; do not install or copy uv into the runtime. Keep caches, lockfiles, build manifests, the
+  unpackaged source tree, compilers, native headers, and other build-only material out of the final
+  image.
+- Set `UV_PYTHON_DOWNLOADS=0` and use the system interpreter in both stages. Keep the builder and
+  runtime on the same Python image lineage so virtual-environment interpreter paths and ABI remain
+  compatible.
+- Install production dependencies and the project with `uv sync --locked --no-editable` under
+  `UV_NO_DEV=1`. Install dependencies before copying frequently changing project files, then perform a
+  final locked sync. Copy only `/app/.venv` into the runtime stage. Package runtime assets into the
+  wheel when appropriate or copy each unpackaged asset explicitly from the builder.
 - Run as an explicit non-root UID/GID. Use an absolute `WORKDIR`, exec-form `CMD`, and graceful signal
   handling.
 - Do not declare `VOLUME` in the Dockerfile. Pre-create the intended data mountpoint with narrow
@@ -98,9 +107,14 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
 ## Validate the Result
 
 - Run the bundled audit helper from the repository root when its source and asset inventory is useful.
+- Resolve every single-stage warning. Confirm the builder uses the approved pinned uv/Python image and
+  the final stage uses the matching slim Python base without uv.
 - Confirm the image job uses `context: .`; CI is the authoritative image-build verification.
 - Run `docker compose config` against each committed profile with safe placeholder values. Confirm the
   merged service images, ports, environment sources, networks, volumes, health checks, and commands.
+- Build the final target and inspect its configured user, entrypoint, command, layers, and installed
+  files. Confirm the final image contains the virtual environment and required runtime assets but not
+  uv, the uv cache, lockfiles, build manifests, tests, or an unpackaged source tree.
 - After CI publishes an image, verify required assets and runtime user from that artifact when the
   task includes image validation. Test clean-host startup only when deployment work requires it.
 - Do not claim a private image pull, push, or clean-host startup was exercised when it was not.

@@ -4,33 +4,39 @@ Read this reference only when creating or substantially replacing a service Dock
 Compose file. The examples assume an installable pure-Python service, repository-root CI context, and
 a published private image. Adapt package names, ports, assets, health paths, and writable state.
 
-## Single-Stage Service Dockerfile
+## Multi-Stage Service Dockerfile
 
-Use a builder/runtime split only when it removes compilers, native headers, build tools, or artifacts
-from production.
+Use a pinned uv/Python builder to create a non-editable production environment, then copy only that
+environment and explicitly required unpackaged assets into the matching slim Python runtime.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim
+FROM ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0 \
-    PATH="/app/.venv/bin:${PATH}" \
-    PYTHONUNBUFFERED=1 \
-    APP_ENVIRONMENT=production
+    UV_NO_DEV=1 \
+    UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-dev --no-editable
+    uv sync --locked --no-install-project --no-editable
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-editable
+
+FROM python:3.14-slim-trixie AS runtime
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    APP_ENVIRONMENT=production
+
+WORKDIR /app
 
 ARG BUILD_GIT_BRANCH=unknown
 ARG BUILD_GIT_COMMIT=unknown
@@ -48,6 +54,8 @@ RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 --no-create-home app \
     && install -d -m 0750 -o 10001 -g 10001 /app/data /app/data/logs
 
+COPY --from=builder --chown=10001:10001 /app/.venv /app/.venv
+
 USER 10001:10001
 EXPOSE 8000
 
@@ -57,10 +65,17 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 CMD ["python", "-m", "uvicorn", "example_service.api:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-CI must build this with repository-root `context: .`. Ensure every runtime asset is packaged or copied;
-do not add a Dockerfile `VOLUME`. Keep credentials, local configuration, mutable data, caches, tests,
-and source-control data out of the context. The explicit data mount owns both mutable application state
-and the bounded structured log files when logging is selected.
+The builder image reference is `ghcr.io/astral-sh/uv` plus the
+`0.12.5-python3.14-trixie-slim` tag. Keep that uv version explicit. The runtime image must retain the
+matching system-Python path and ABI; do not substitute a differently based Python image without
+rebuilding and testing the environment there.
+
+CI must build this with repository-root `context: .`. Add `.venv` to `.dockerignore`. Ensure every
+runtime asset is packaged into the installed project or copied explicitly from the builder; do not
+copy the repository wholesale into the runtime. Do not add a Dockerfile `VOLUME`. Keep credentials,
+local configuration, mutable data, caches, tests, and source-control data out of the context. The
+explicit data mount owns both mutable application state and the bounded structured log files when
+logging is selected.
 
 ## Image-Only Compose
 

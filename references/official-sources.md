@@ -91,6 +91,9 @@ over blog posts and copied snippets.
 
 ## Containers and supply chain
 
+- [Astral's uv Docker example](https://github.com/astral-sh/uv-docker-example): lockfile-first layers,
+  non-editable installs, matching builder/runtime interpreters, and a final multi-stage image without
+  uv.
 - [Docker build best practices](https://docs.docker.com/build/building/best-practices/): multi-stage
   images, minimal bases, cache use, non-root users, and digest pinning.
 - [Dockerfile `VOLUME`](https://docs.docker.com/reference/dockerfile/#volume): image-declared
@@ -139,8 +142,19 @@ over blog posts and copied snippets.
   boundaries, distinct from application request IDs and idempotency keys.
 - [FastAPI in containers](https://fastapi.tiangolo.com/deployment/docker/): exec-form commands,
   graceful shutdown, and worker tradeoffs.
+- [GitHub Actions workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax):
+  event filters, permissions, concurrency, dependencies, runner jobs, step and job timeouts, and
+  reusable-workflow calls.
+- [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency):
+  collision-safe groups, cancellation, and queue behavior.
+- [Reusable workflow configurations](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations):
+  supported caller-job keys, nested permissions, and caller/callee concurrency hazards.
 - [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use): least
   token permissions, immutable action references, secrets, and supply-chain hardening.
+- [`actions/checkout`](https://github.com/actions/checkout): event revision behavior, fetch depth,
+  credential persistence, and minimum token permissions.
+- [GitHub-hosted runner images](https://github.com/actions/runner-images): supported labels, installed
+  software, image updates, and `-latest` migration behavior.
 - [GitHub secret types](https://docs.github.com/en/code-security/reference/secret-security/secret-types):
   repository secret scope and withholding from fork and Dependabot pull requests.
 - [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments):
