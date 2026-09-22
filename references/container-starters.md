@@ -6,12 +6,13 @@ a published private image. Adapt package names, ports, assets, health paths, and
 
 ## Multi-Stage Service Dockerfile
 
-Use a pinned uv/Python builder to create a non-editable production environment, then copy only that
-environment and explicitly required unpackaged assets into the matching slim Python runtime.
+Use a pinned uv/Python image to build a dependency-only environment and an application wheel. Copy the
+dependencies into the matching slim Python runtime, then install the wheel in its own layer so source
+changes preserve the dependency layer.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim AS dependencies
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -25,10 +26,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-editable
 
-COPY pyproject.toml uv.lock README.md ./
+FROM dependencies AS builder
+
+COPY pyproject.toml README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable
+    uv build --wheel --out-dir /dist
 
 FROM python:3.14-slim-trixie AS runtime
 
@@ -37,6 +40,19 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     APP_ENVIRONMENT=production
 
 WORKDIR /app
+
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home app \
+    && install -d -m 0750 -o 10001 -g 10001 /app/data /app/data/logs
+
+COPY --from=dependencies --chown=10001:10001 /app/.venv /app/.venv
+
+USER 10001:10001
+
+RUN --mount=from=dependencies,source=/usr/local/bin/uv,target=/bin/uv \
+    --mount=from=builder,source=/dist,target=/dist \
+    uv pip install --python /app/.venv/bin/python \
+    --no-deps --no-index --no-cache --compile-bytecode /dist/*.whl
 
 ARG BUILD_GIT_BRANCH=unknown
 ARG BUILD_GIT_COMMIT=unknown
@@ -50,13 +66,6 @@ ENV BUILD_GIT_BRANCH="${BUILD_GIT_BRANCH}" \
     BUILD_GIT_COMMIT="${BUILD_GIT_COMMIT}" \
     BUILD_GIT_COMMIT_TIME="${BUILD_GIT_COMMIT_TIME}"
 
-RUN groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid 10001 --no-create-home app \
-    && install -d -m 0750 -o 10001 -g 10001 /app/data /app/data/logs
-
-COPY --from=builder --chown=10001:10001 /app/.venv /app/.venv
-
-USER 10001:10001
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
@@ -70,12 +79,20 @@ The builder image reference is `ghcr.io/astral-sh/uv` plus the
 matching system-Python path and ABI; do not substitute a differently based Python image without
 rebuilding and testing the environment there.
 
-CI must build this with repository-root `context: .`. Add `.venv` to `.dockerignore`. Ensure every
-runtime asset is packaged into the installed project or copied explicitly from the builder; do not
-copy the repository wholesale into the runtime. Do not add a Dockerfile `VOLUME`. Keep credentials,
-local configuration, mutable data, caches, tests, and source-control data out of the context. The
-explicit data mount owns both mutable application state and the bounded structured log files when
-logging is selected.
+CI must build this with repository-root `context: .`. Add `.venv` to `.dockerignore`. Include any
+additional packaging inputs, such as license files, in the wheel-builder stage. Package runtime assets
+into the wheel or copy each unpackaged asset explicitly before the build-identity arguments; do not
+copy the repository wholesale into the runtime. Asset-only edits should not rebuild the wheel unless
+those assets belong to the package.
+
+The runtime copies `/app/.venv` from `dependencies`, which excludes the application. The wheel install
+uses the locked environment without resolving dependencies, and its mounted uv binary and wheel are
+absent from the final image. Keep build identity below all filesystem operations so metadata changes
+preserve their layers.
+
+Do not add a Dockerfile `VOLUME`. Keep credentials, local configuration, mutable data, caches, tests,
+and source-control data out of the context. The explicit data mount owns both mutable application
+state and the bounded structured log files when logging is selected.
 
 ## Image-Only Compose
 
