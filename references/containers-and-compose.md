@@ -52,10 +52,21 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
 - Set `UV_PYTHON_DOWNLOADS=0` and use the system interpreter in both stages. Keep the builder and
   runtime on the same Python image lineage so virtual-environment interpreter paths and ABI remain
   compatible.
-- Install production dependencies and the project with `uv sync --locked --no-editable` under
-  `UV_NO_DEV=1`. Install dependencies before copying frequently changing project files, then perform a
-  final locked sync. Copy only `/app/.venv` into the runtime stage. Package runtime assets into the
-  wheel when appropriate or copy each unpackaged asset explicitly from the builder.
+- Under `UV_NO_DEV=1`, create a dependency-only environment with
+  `uv sync --locked --no-install-project --no-editable` in a named dependency stage. Keep its inputs
+  limited to the lockfile and required project or workspace manifests.
+- Build the application wheel in a separate stage after copying its source and packaging inputs.
+  Copy the dependency-only `/app/.venv` into the runtime, then install the wheel in a separate layer
+  with `uv pip install --python /app/.venv/bin/python --no-deps --no-index --no-cache
+  --compile-bytecode`. Bind-mount uv and the wheel for that build step so neither remains in the final
+  image. Preserve any required workspace packages or native build inputs when adapting this pattern.
+- Keep dependencies and the installed application in separate final-image layers. Copying a complete
+  environment containing both into one runtime layer makes source edits resend the dependencies, even
+  when the builder's dependency installation is cached. Package runtime assets into the application
+  wheel or copy unpackaged assets in their own layers.
+- Put build-identity `ARG`, `LABEL`, and `ENV` instructions after filesystem operations so a new commit
+  or build timestamp does not invalidate dependency, installation, or ownership layers. A new
+  dependency layer still needs its first upload; unchanged layers can be reused on later pushes.
 - Run as an explicit non-root UID/GID. Use an absolute `WORKDIR`, exec-form `CMD`, and graceful signal
   handling.
 - Do not declare `VOLUME` in the Dockerfile. Pre-create the intended data mountpoint with narrow
