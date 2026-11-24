@@ -9,6 +9,7 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
 
 - [Audit the build contract](#audit-the-build-contract)
 - [Build a least-privilege image](#build-a-least-privilege-image)
+- [Preserve existing runtime contracts](#preserve-existing-runtime-contracts)
 - [Describe environments with Compose](#describe-environments-with-compose)
 - [Validate the result](#validate-the-result)
 
@@ -37,18 +38,20 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
 
 ## Build a Least-Privilege Image
 
-- Build Python 3.14 services with the pinned
-  `ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim` builder and run them from the matching
-  `python:3.14-slim-trixie` base. Prefer Debian slim for broad wheel and native-library compatibility.
+- Use `python:3.14-slim-trixie` for both the dependency builder and runtime, copying uv from the
+  pinned `ghcr.io/astral-sh/uv:0.12.5` distroless image. The matching derived builder
+  `ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim` is also supported. Prefer Debian slim for broad
+  wheel and native-library compatibility. Avoid the full `python3.14-trixie` uv image and full
+  `python:3.14-trixie` runtime when shrinking an image.
   Use Alpine only after verifying the complete dependency stack on musl and demonstrating a concrete
   benefit.
 - Use current Dockerfile syntax, a trusted minimal base, BuildKit cache mounts, and lockfile-first
   layers. Treat base-image tags and digests as an explicit update policy; pin a digest only when the
   repository requires byte-for-byte repeatability.
-- Require separate builder and runtime stages for deployable services. Use the uv image only in the
-  builder; do not install or copy uv into the runtime. Keep caches, lockfiles, build manifests, the
-  unpackaged source tree, compilers, native headers, and other build-only material out of the final
-  image.
+- Require separate builder and runtime stages for deployable services. For the packaged-service
+  starter, use uv only during the build; keep uv, caches, lockfiles, build manifests, the unpackaged
+  source tree, compilers and native headers out of the final image. Preserve existing runtime
+  requirements as described below instead of imposing a packaging migration during a size reduction.
 - Set `UV_PYTHON_DOWNLOADS=0` and use the system interpreter in both stages. Keep the builder and
   runtime on the same Python image lineage so virtual-environment interpreter paths and ABI remain
   compatible.
@@ -86,6 +89,20 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
   `{{ index .Config.Labels "org.opencontainers.image.revision" }}` rather than treating dots as nested
   fields.
 
+## Preserve Existing Runtime Contracts
+
+- Inspect actual Compose commands and resource-path construction before removing uv or source files.
+  A service that derives repository-root assets from `__file__` may need its editable installation
+  and source at the same absolute path in both stages. A wheel changes `__file__`; merely copying the
+  old source alongside it does not preserve that contract.
+- When an existing deployment runs `uv run`, retain the pinned uv binary and required project
+  metadata until that command contract is deliberately migrated. Set `UV_NO_SYNC=1` (or use
+  `uv run --no-sync`) and `UV_PYTHON_DOWNLOADS=0` so startup uses the built environment. Keep its
+  non-root UID/GID, writable mountpoints, build metadata and broker/application entrypoints intact.
+- Shrink the base and copy only the locked production environment and required resources first.
+  Exclude development dependencies and host caches, but retain required native libraries and runtime
+  packages. Changing packaging, resource lookup or deployment commands is a separate migration.
+
 ## Describe Environments With Compose
 
 - Use the Compose Specification without the obsolete top-level `version` key.
@@ -118,14 +135,15 @@ When creating or substantially replacing a Dockerfile or Compose file, also read
 ## Validate the Result
 
 - Run the bundled audit helper from the repository root when its source and asset inventory is useful.
-- Resolve every single-stage warning. Confirm the builder uses the approved pinned uv/Python image and
-  the final stage uses the matching slim Python base without uv.
+- Resolve every single-stage warning. Confirm the builder uses either the slim Python base plus
+  pinned uv binary or the matching pinned derived uv image, and the final stage uses slim Python.
+  Check documented runtime compatibility requirements before removing uv or project resources.
 - Confirm the image job uses `context: .`; CI is the authoritative image-build verification.
 - Run `docker compose config` against each committed profile with safe placeholder values. Confirm the
   merged service images, ports, environment sources, networks, volumes, health checks, and commands.
-- Build the final target and inspect its configured user, entrypoint, command, layers, and installed
-  files. Confirm the final image contains the virtual environment and required runtime assets but not
-  uv, the uv cache, lockfiles, build manifests, tests, or an unpackaged source tree.
-- After CI publishes an image, verify required assets and runtime user from that artifact when the
-  task includes image validation. Test clean-host startup only when deployment work requires it.
+- When image validation is in scope, inspect CI's final artifact: user, entrypoint, command, layers,
+  installed environment and required assets. Check that build-only files and caches are absent;
+  allow only the runtime metadata/source/uv required by a documented compatibility contract. Compare
+  sizes for the same platform and metric; registry transfer size and unpacked image size differ.
+  Test clean-host startup only when deployment work requires it.
 - Do not claim a private image pull, push, or clean-host startup was exercised when it was not.

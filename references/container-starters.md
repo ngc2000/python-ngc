@@ -6,13 +6,17 @@ a published private image. Adapt package names, ports, assets, health paths, and
 
 ## Multi-Stage Service Dockerfile
 
-Use a pinned uv/Python image to build a dependency-only environment and an application wheel. Copy the
-dependencies into the matching slim Python runtime, then install the wheel in its own layer so source
-changes preserve the dependency layer.
+Use `python:3.14-slim-trixie` for both the dependency builder and runtime. Copy the pinned uv binary
+from its distroless image into the builder, keeping tool-version updates separate from the Python
+base. Build a dependency-only environment and an application wheel, then install the wheel in its own
+runtime layer so source changes preserve the dependency layer.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim AS dependencies
+FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
+FROM python:3.14-slim-trixie AS dependencies
+
+COPY --from=uv /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -49,7 +53,7 @@ COPY --from=dependencies --chown=10001:10001 /app/.venv /app/.venv
 
 USER 10001:10001
 
-RUN --mount=from=dependencies,source=/usr/local/bin/uv,target=/bin/uv \
+RUN --mount=from=uv,source=/uv,target=/bin/uv \
     --mount=from=builder,source=/dist,target=/dist \
     uv pip install --python /app/.venv/bin/python \
     --no-deps --no-index --no-cache --compile-bytecode /dist/*.whl
@@ -74,10 +78,11 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 CMD ["python", "-m", "uvicorn", "example_service.api:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-The builder image reference is `ghcr.io/astral-sh/uv` plus the
-`0.12.5-python3.14-trixie-slim` tag. Keep that uv version explicit. The runtime image must retain the
-matching system-Python path and ABI; do not substitute a differently based Python image without
-rebuilding and testing the environment there.
+Keep the uv version explicit and both Python base references identical. The matching pinned derived
+builder `ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim` is also supported. Do not replace the final
+stage with the full `python:3.14-trixie` or `uv:python3.14-trixie` image: a separate runtime stage only
+reduces size when its base and copied contents are also small. The runtime must retain the builder's
+system-Python path and ABI.
 
 CI must build this with repository-root `context: .`. Add `.venv` to `.dockerignore`. Include any
 additional packaging inputs, such as license files, in the wheel-builder stage. Package runtime assets
@@ -93,6 +98,36 @@ preserve their layers.
 Do not add a Dockerfile `VOLUME`. Keep credentials, local configuration, mutable data, caches, tests,
 and source-control data out of the context. The explicit data mount owns both mutable application
 state and the bounded structured log files when logging is selected.
+
+## Build Context
+
+For the starter above, an allowlist keeps unrelated repository files out of the build context:
+
+```dockerignore
+**
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/**
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.env
+**/*.log
+```
+
+Adapt the allowlist to the Dockerfile's actual inputs. Include license files, workspace manifests,
+and required top-level asset directories when used; directory exceptions need both the directory
+and its descendants. In particular, `uv.lock` must remain available to the dependency bind mount.
+Keep explicit runtime `COPY` instructions even when the context is allowlisted.
+
+For an existing service whose resource paths depend on an editable source layout or whose deployment
+commands use `uv run`, follow the compatibility guidance in
+[containers-and-compose.md](containers-and-compose.md#preserve-existing-runtime-contracts) before
+adopting the wheel-only runtime above.
 
 ## Image-Only Compose
 

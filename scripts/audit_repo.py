@@ -29,6 +29,7 @@ IGNORED_SCAN_PARTS = {
 RUNTIME_ASSET_DIRS = ("consts", "migrations", "static", "templates")
 DOC_POLICY_FILES = ("AGENTS.md", "CLAUDE.md", "CONSTITUTION.md", "README.md")
 NGC_UV_BUILDER_IMAGE = "ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim"
+NGC_UV_BINARY_IMAGE = "ghcr.io/astral-sh/uv:0.12.5"
 NGC_PYTHON_RUNTIME_IMAGE = "python:3.14-slim-trixie"
 
 
@@ -287,16 +288,25 @@ def _audit_docker(
                 ),
             )
         else:
-            if not any(
+            derived_builder = any(
                 _matches_container_image(image, NGC_UV_BUILDER_IMAGE)
                 for image in stage_images[:-1]
-            ):
+            )
+            slim_builder = any(
+                _matches_container_image(image, NGC_PYTHON_RUNTIME_IMAGE)
+                for image in stage_images[:-1]
+            ) and any(
+                _matches_container_image(image, NGC_UV_BINARY_IMAGE)
+                for image in stage_images[:-1]
+            )
+            if not (derived_builder or slim_builder):
                 findings.append(
                     Finding(
                         "warning",
                         "unexpected-uv-builder",
                         (
-                            f"{relative_dockerfile} does not use {NGC_UV_BUILDER_IMAGE} "
+                            f"{relative_dockerfile} does not use {NGC_UV_BUILDER_IMAGE}, or "
+                            f"{NGC_PYTHON_RUNTIME_IMAGE} with a {NGC_UV_BINARY_IMAGE} stage, "
                             "before its final stage."
                         ),
                         (relative_dockerfile,),
@@ -309,7 +319,7 @@ def _audit_docker(
                         "unexpected-python-runtime",
                         (
                             f"{relative_dockerfile} ends with {stage_images[-1]!r}; use "
-                            f"{NGC_PYTHON_RUNTIME_IMAGE} so uv stays out of the runtime image."
+                            f"{NGC_PYTHON_RUNTIME_IMAGE} and copy only required runtime files."
                         ),
                         (relative_dockerfile,),
                     ),
